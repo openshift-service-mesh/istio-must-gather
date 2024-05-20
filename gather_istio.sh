@@ -1,5 +1,4 @@
 #!/bin/bash
-set -ex
 # Copyright 2024 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,27 +13,28 @@ set -ex
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-BASE_COLLECTION_PATH="/tmp/must-gather"
+BASE_COLLECTION_PATH="/must-gather"
 
-# Get the namespaces of all control planes in the cluster
-function getControlPlanes() {
-  local result=()
+# make sure we honor --since and --since-time args passed to oc must-gather
+# since OCP 4.16
+get_log_collection_args() {
+  # validation of MUST_GATHER_SINCE and MUST_GATHER_SINCE_TIME is done by the
+  # caller (oc adm must-gather) so it's safe to use the values as they are.
+  log_collection_args=""
 
-  local namespaces
-  #TODO: there should be never Istiorevision in a namespaces without Istio resource??
-  namespaces=$(oc get Istio --all-namespaces -o jsonpath='{.items[*].spec.namespace}')
-  for namespace in ${namespaces}; do
-    result+=("${namespace}")
-  done
-
-  echo "${result[@]}"
+  if [ -n "${MUST_GATHER_SINCE:-}" ]; then
+    log_collection_args=--since="${MUST_GATHER_SINCE}"
+  fi
+  if [ -n "${MUST_GATHER_SINCE_TIME:-}" ]; then
+    log_collection_args=--since-time="${MUST_GATHER_SINCE_TIME}"
+  fi
 }
 
-# Get the CRD's that belong to Istio
+# Get the CRDs that belong to Istio
 function getCRDs() {
   local result=()
   local output
-  output=$(oc get crds -o name | grep ".*\.istio\.io")
+  output=$(oc get crds -o custom-columns=NAME:metadata.name --no-headers | grep '\.istio\.io')
   for crd in ${output}; do
     result+=("${crd}")
   done
@@ -42,68 +42,57 @@ function getCRDs() {
   echo "${result[@]}"
 }
 
-# getIstiodNames gets the names of the istiod pods in that namespace
-function getIstiodNames() {
-  local namespace="${1}"
-
-  oc get pods -n "${namespace}" -l app=istiod -o jsonpath="{.items[*].metadata.name}"
-}
-
-# getSynchronization dumps the synchronization status for the specified control plane
-# to a file in the control plane directory of the control plane namespace
+# getSynchronization dumps the synchronization status for the specified control plane revision
+# to a file in the control plane revision directory of the control plane namespace
 # Arguments:
 #   namespace of the control plane
+#   revision of the control plane
 # Returns:
 #   nothing
 function getSynchronization() {
   local namespace="${1}"
+  local revision="${2}"
 
-  local istiodNames
-  istiodNames=$(getIstiodNames "${namespace}")
+  local istiodName
+  istiodName=$(oc get pod -n "${namespace}" -l "app=istiod,istio.io/rev=${revision}" -o jsonpath="{.items[0].metadata.name}")
 
-  local name
-  for name in ${istiodNames}; do
-    echo
-    echo "Collecting /debug/syncz from ${name} in namespace ${cp}"
+  echo
+  echo "Collecting /debug/syncz from ${istiodName} in namespace ${namespace}"
 
-    local logPath=${BASE_COLLECTION_PATH}/namespaces/${namespace}/${name}
-    mkdir -p "${logPath}"
-    oc exec "${name}" -n "${namespace}" -c discovery -- /usr/local/bin/pilot-discovery request GET /debug/syncz > "${logPath}/debug-syncz.json" 2>&1
-  done
+  local logPath=${BASE_COLLECTION_PATH}/namespaces/${namespace}/${revision}
+  mkdir -p "${logPath}"
+  oc exec "${istiodName}" -n "${namespace}" -c discovery -- /usr/local/bin/pilot-discovery request GET /debug/syncz > "${logPath}/debug-syncz.json" 2>&1
 }
 
 # getEnvoyConfigForPodsInNamespace dumps the envoy config for the specified namespace and
-# control plane to a file in the must-gather directory for each pod
+# control plane revision to a file in the must-gather directory for each pod
 # Arguments:
 #   namespace of the control plane
+#   revision of the control plane
 #   namespace to dump
 # Returns:
 #   nothing
 function getEnvoyConfigForPodsInNamespace() {
   local controlPlaneNamespace="${1}"
-  
-  # TODO: how to get proxy <> control plane mapping? Using istioctl proxy-status? Using just namespaces labels
-  local pilotName
-  pilotName=$(getPilotName "${controlPlaneNamespace}")
-  local podNamespace="${2}"
+  local revisionName="${2}"
+  local podNamespace="${3}"
+
+  local istiodName
+  istiodName=$(oc get pod -n "${controlPlaneNamespace}" -l "app=istiod,istio.io/rev=${revisionName}" -o jsonpath="{.items[0].metadata.name}")
 
   echo
-  echo "Collecting Envoy config for pods in ${podNamespace}, control plane namespace ${controlPlaneNamespace}"
+  echo "Collecting Envoy config for pods in ${podNamespace} pointing to ${revisionName} revision"
 
   local pods
   pods="$(oc get pods -n "${podNamespace}" -o jsonpath='{ .items[*].metadata.name }')"
   for podName in ${pods}; do
-    if [ -z "$podName" ]; then
-        continue
-    fi
-
     if oc get pod -o yaml "${podName}" -n "${podNamespace}" | grep -q proxyv2; then
       echo "Collecting config_dump and stats for pod ${podName}.${podNamespace}"
 
       local logPath=${BASE_COLLECTION_PATH}/namespaces/${podNamespace}/pods/${podName}
       mkdir -p "${logPath}"
 
-      oc exec "${pilotName}" -n "${controlPlaneNamespace}" -c discovery -- bash -c "/usr/local/bin/pilot-discovery request GET /debug/config_dump?proxyID=${podName}.${podNamespace}" > "${logPath}/config_dump_istiod.json" 2>&1
+      oc exec "${istiodName}" -n "${controlPlaneNamespace}" -c discovery -- bash -c "/usr/local/bin/pilot-discovery request GET /debug/config_dump?proxyID=${podName}.${podNamespace}" > "${logPath}/config_dump_istiod.json" 2>&1
       oc exec -n "${podNamespace}" "${podName}" -c istio-proxy -- /usr/local/bin/pilot-agent request GET config_dump > "${logPath}/config_dump_proxy.json" 2>&1
       oc exec -n "${podNamespace}" "${podName}" -c istio-proxy -- /usr/local/bin/pilot-agent request GET stats > "${logPath}/proxy_stats" 2>&1
     fi
@@ -118,6 +107,10 @@ function version() {
   fi
 }
 
+# Inspect given resource in given namespace (optional)
+# It's using 'oc adm inspect' which will get debug information for given and
+# related resources. Including pod logs.
+# Since OCP 4.16 it honors '--since' and '--since-time' args
 function inspect() {
   local resource ns
   resource=$1
@@ -126,10 +119,22 @@ function inspect() {
   echo
   if [ -n "$ns" ]; then
     echo "Inspecting resource ${resource} in namespace ${ns}"
-    oc adm inspect "--dest-dir=${BASE_COLLECTION_PATH}" "${resource}" -n "${ns}"
+    # it's here just to make the linter happy (we have to use double quotes arround the variable)
+    if [ -n "${log_collection_args}" ]
+    then
+      oc adm inspect "${log_collection_args}" "--dest-dir=${BASE_COLLECTION_PATH}" "${resource}" -n "${ns}"
+    else
+      oc adm inspect "--dest-dir=${BASE_COLLECTION_PATH}" "${resource}" -n "${ns}"
+    fi
   else
     echo "Inspecting resource ${resource}"
-    oc adm inspect "--dest-dir=${BASE_COLLECTION_PATH}" "${resource}"
+    # it's here just to make the linter happy
+    if [ -n "${log_collection_args}" ]
+    then
+      oc adm inspect "${log_collection_args}" "--dest-dir=${BASE_COLLECTION_PATH}" "${resource}"
+    else
+      oc adm inspect "--dest-dir=${BASE_COLLECTION_PATH}" "${resource}"
+    fi
   fi
 }
 
@@ -145,8 +150,7 @@ function inspectNamespace() {
 }
 
 function main() {
-  #TODO: respect --since and --since-time: https://github.com/openshift/enhancements/blob/master/enhancements/oc/must-gather.md#must-gather-images
-  local crds controlPlanes
+  local crds
   echo
   echo "Executing Istio gather script"
   echo
@@ -155,12 +159,19 @@ function main() {
   echo "openshift-service-mesh/must-gather"> "$versionFile"
   version >> "$versionFile"
 
+  # set global variable which is used when calling 'oc adm inspect'
+  get_log_collection_args
+
   # TODO: add new name label to servicemesh-operator3 pod and use that instead of the control-plane label
   operatorNamespace=$(oc get pods --all-namespaces -l control-plane=servicemesh-operator3 -o jsonpath="{.items[0].metadata.namespace}")
+  # this gets also logs for all pods in that namespace
+  inspect "ns/$operatorNamespace"
+  inspect clusterserviceversion "${operatorNamespace}"
 
   inspect nodes
 
-  # TODO: does this match everything we need?
+  # TODO: we should probably add a new label or start using 'install.operator.istio.io/owning-resource'
+  # another option is to use 'metadata.ownerReferences' but having a label would be easier for a query
   for r in $(oc get clusterroles,clusterrolebindings -l install.operator.istio.io/owning-resource -oname); do
     inspect "$r"
   done
@@ -168,57 +179,66 @@ function main() {
     inspect "$r"
   done
 
-
+  # inspect all istio.io CRDs
   crds="$(getCRDs)"
   for crd in ${crds}; do
-    inspect "${crd}"
+    inspect "crd/${crd}"
   done
-
-  controlPlanes="$*"
-  if [ -z "${controlPlanes}" ]; then
-    controlPlanes="$(getControlPlanes)"
-  fi
-
-  inspect "ns/$operatorNamespace"
-  inspect clusterserviceversion "${operatorNamespace}"
 
   # inspect all controlled mutatingwebhookconfiguration
-  for mwc in $(oc get mutatingwebhookconfiguration -l app=sidecar-injector);do
-    inspect ${mwc}
+  for mwc in $(oc get mutatingwebhookconfiguration -l app=sidecar-injector -o name);do
+    inspect "${mwc}"
   done
   # inspect all controlled validatingwebhookconfiguration
-  for vwc in $(oc get validatingwebhookconfiguration -l app=istiod);do
-    inspect ${vwc}
+  for vwc in $(oc get validatingwebhookconfiguration -l app=istiod -o name);do
+    inspect "${vwc}"
   done
 
+  # inspect Istio and IstioRevision resources, this will just store all CRs as those are cluster-scoped resources
+  inspect "Istio"
+  inspect "IstioRevision"
+
+  # inspect all namespaces with Istio components
+  controlPlanes=$(oc get IstioRevision -o custom-columns=NAME:spec.namespace --no-headers | sort -u)
   for cp in ${controlPlanes}; do
-      echo
-      echo "Processing control plane namespace: ${cp}"
+    echo
+    echo "Processing control plane namespace: ${cp}"
 
-      crds="$crds" inspectNamespace "$cp"
-      #getEnvoyConfigForPodsInNamespace "${cp}" "${cp}"
-      getSynchronization "${cp}"
-
-      #TODO: how to get proxy <> control plane mapping? Using istioctl proxy-status? Using just namespaces labels
-      #members=$(getMembers "${cp}")
-      #for member in ${members}; do
-      #    if [ -z "$member" ]; then
-      #        continue
-      #    fi
-
-       #   echo "Processing ${cp} member ${member}"
-       #   crds="$crds" inspectNamespace "$member"
-       #   getEnvoyConfigForPodsInNamespace "${cp}" "${member}"
-       #done
-
-
-       #TODO: istio-cni, remoteIstio
+    inspectNamespace "$cp"
   done
 
-  echo
-  echo
-  echo "Done"
-  echo
+  # iterate over all Istio revisions
+  for ir in $(oc get IstioRevision -o jsonpath="{.items[*].metadata.name}"); do
+    echo
+    echo "Inspecting ${ir} IstioRevision"
+    cpNamespace=$(oc get IstioRevision "${ir}" -o jsonpath="{.spec.namespace}")
+
+    getSynchronization "${cpNamespace}" "${ir}"
+
+    # iterate over all namespaces which have pods with proxy pointing to this control plane revision
+    # TODO: this might be very resource demanding and causing performance problems in clusters with a lot of pods
+    for dpn in $(oc get pods -A -o=jsonpath="{.items[?(@.metadata.annotations.istio\.io/rev==\"${ir}\")].metadata.namespace}" | tr ' ' '\n' | sort -u); do
+      echo
+      echo "Inspecting ${dpn} data plane namespace"
+      inspectNamespace "${dpn}"
+      getEnvoyConfigForPodsInNamespace "${cpNamespace}" "${ir}" "${dpn}"
+    done
+
+    istioCniNamespace=$(oc get IstioCNI -A -o jsonpath="{.items[0].spec.namespace}")
+    if [ -n "$istioCniNamespace" ]
+    then
+      inspectNamespace "${istioCniNamespace}"
+      # cluster-scoped resource
+      inspect "IstioCNI"
+    fi
+
+  #TODO: remoteIstio
+done
+
+echo
+echo
+echo "Done"
+echo
 }
 
 main "$@"
