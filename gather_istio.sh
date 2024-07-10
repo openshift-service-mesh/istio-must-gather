@@ -162,16 +162,17 @@ function main() {
   # set global variable which is used when calling 'oc adm inspect'
   get_log_collection_args
 
-  # TODO: add new name label to servicemesh-operator3 pod and use that instead of the control-plane label
-  operatorNamespace=$(oc get pods --all-namespaces -l control-plane=servicemesh-operator3 -o jsonpath="{.items[0].metadata.namespace}")
+  operatorNamespace=$(oc get pods --all-namespaces -l app.kubernetes.io/created-by=servicemesh-operator3 -o jsonpath="{.items[0].metadata.namespace}")
   # this gets also logs for all pods in that namespace
   inspect "ns/$operatorNamespace"
   inspect clusterserviceversion "${operatorNamespace}"
 
   inspect nodes
 
-  # TODO: we should probably add a new label or start using 'install.operator.istio.io/owning-resource'
-  # another option is to use 'metadata.ownerReferences' but having a label would be easier for a query
+  # TODO: we have to add a new label in the helm postrenderer section in the operator the same way like 'metadata.ownerReferences' is added
+  # 'install.operator.istio.io/owning-resource' should not be used as it could interfere with istioctl
+  # using 'metadata.ownerReferences' is not a good solution, we should use the new label when ready
+  # this needs to be revisited when working on https://issues.redhat.com/browse/OSSM-6804
   for r in $(oc get clusterroles,clusterrolebindings -l install.operator.istio.io/owning-resource -oname); do
     inspect "$r"
   done
@@ -194,9 +195,18 @@ function main() {
     inspect "${vwc}"
   done
 
-  # inspect Istio and IstioRevision resources, this will just store all CRs as those are cluster-scoped resources
+  # this will just store all CRs as those are cluster-scoped resources
   inspect "Istio"
   inspect "IstioRevision"
+  inspect "IstioCNI"
+  #TODO: remoteIstio
+  #TODO: kiali??
+
+  istioCniNamespace=$(oc get IstioCNI -A -o jsonpath="{.items[0].spec.namespace}")
+  if [ -n "$istioCniNamespace" ]
+  then
+    inspectNamespace "${istioCniNamespace}"
+  fi
 
   # inspect all namespaces with Istio components
   controlPlanes=$(oc get IstioRevision -o custom-columns=NAME:spec.namespace --no-headers | sort -u)
@@ -216,23 +226,12 @@ function main() {
     getSynchronization "${cpNamespace}" "${ir}"
 
     # iterate over all namespaces which have pods with proxy pointing to this control plane revision
-    # TODO: this might be very resource demanding and causing performance problems in clusters with a lot of pods
     for dpn in $(oc get pods -A -o=jsonpath="{.items[?(@.metadata.annotations.istio\.io/rev==\"${ir}\")].metadata.namespace}" | tr ' ' '\n' | sort -u); do
       echo
       echo "Inspecting ${dpn} data plane namespace"
       inspectNamespace "${dpn}"
       getEnvoyConfigForPodsInNamespace "${cpNamespace}" "${ir}" "${dpn}"
     done
-
-    istioCniNamespace=$(oc get IstioCNI -A -o jsonpath="{.items[0].spec.namespace}")
-    if [ -n "$istioCniNamespace" ]
-    then
-      inspectNamespace "${istioCniNamespace}"
-      # cluster-scoped resource
-      inspect "IstioCNI"
-    fi
-
-  #TODO: remoteIstio
 done
 
 echo
