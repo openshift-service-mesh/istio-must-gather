@@ -14,8 +14,8 @@
 
 default: image
 
-HUB ?= quay.io/openshift-release-dev
-TAG ?= latest
+HUB ?= quay.io/maistra
+TAG ?= 3.0
 
 lint:
 	find . -name '*.sh' -print0 | xargs -0 -r shellcheck
