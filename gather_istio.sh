@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2024 Red Hat, Inc.
+# Copyright 2025 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 
 BASE_COLLECTION_PATH="/must-gather"
 
@@ -34,7 +35,7 @@ get_log_collection_args() {
 function getCRDs() {
   local result=()
   local output
-  output=$(oc get crds -o custom-columns=NAME:metadata.name --no-headers | grep '\.istio\.io')
+  output=$(oc get crds -o custom-columns=NAME:metadata.name --no-headers | grep -e '\.istio\.io' -e '\.sailoperator\.io' -e '\.kiali\.io')
   for crd in ${output}; do
     result+=("${crd}")
   done
@@ -162,7 +163,7 @@ function main() {
   # set global variable which is used when calling 'oc adm inspect'
   get_log_collection_args
 
-  operatorNamespace=$(oc get pods --all-namespaces -l app.kubernetes.io/created-by=servicemesh-operator3 -o jsonpath="{.items[0].metadata.namespace}")
+  operatorNamespace=$(oc get pods --all-namespaces -l app.kubernetes.io/created-by=servicemeshoperator3 -o jsonpath="{.items[0].metadata.namespace}")
   # this gets also logs for all pods in that namespace
   inspect "ns/$operatorNamespace"
   inspect clusterserviceversion "${operatorNamespace}"
@@ -199,8 +200,8 @@ function main() {
   inspect "Istio"
   inspect "IstioRevision"
   inspect "IstioCNI"
-  #TODO: remoteIstio
-  #TODO: kiali??
+  inspect "IstioRevisionTag"
+  inspect "ZTunnel"
 
   istioCniNamespace=$(oc get IstioCNI -A -o jsonpath="{.items[0].spec.namespace}")
   if [ -n "$istioCniNamespace" ]
@@ -208,20 +209,12 @@ function main() {
     inspectNamespace "${istioCniNamespace}"
   fi
 
-  # inspect all namespaces with Istio components
-  controlPlanes=$(oc get IstioRevision -o custom-columns=NAME:spec.namespace --no-headers | sort -u)
-  for cp in ${controlPlanes}; do
-    echo
-    echo "Processing control plane namespace: ${cp}"
-
-    inspectNamespace "$cp"
-  done
-
   # iterate over all Istio revisions
   for ir in $(oc get IstioRevision -o jsonpath="{.items[*].metadata.name}"); do
     echo
     echo "Inspecting ${ir} IstioRevision"
     cpNamespace=$(oc get IstioRevision "${ir}" -o jsonpath="{.spec.namespace}")
+    inspectNamespace "$cpNamespace"
 
     getSynchronization "${cpNamespace}" "${ir}"
 
@@ -232,7 +225,23 @@ function main() {
       inspectNamespace "${dpn}"
       getEnvoyConfigForPodsInNamespace "${cpNamespace}" "${ir}" "${dpn}"
     done
-done
+  done
+
+  # Inspect all Kialis
+  for kialiNS in $(oc get Kiali -A -o jsonpath="{.items[*].metadata.namespace}"); do
+    echo
+    echo "Inspecting Kialis in ${kialiNS} namespace"
+    inspect "Kiali" "${kialiNS}"
+    inspectNamespace "$kialiNS"
+  done
+
+  # Inspect all ossmconsoles
+  for consoleNS in $(oc get ossmconsole -A -o jsonpath="{.items[*].metadata.namespace}"); do
+    echo
+    echo "Inspecting ossmconsoles in ${consoleNS} namespace"
+    inspect "ossmconsole" "${consoleNS}"
+    inspectNamespace "$consoleNS"
+  done
 
 echo
 echo
