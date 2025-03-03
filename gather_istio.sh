@@ -227,21 +227,24 @@ function main() {
     done
   done
 
-  # Inspect all Kialis
-  for kialiNS in $(oc get Kiali -A -o jsonpath="{.items[*].metadata.namespace}"); do
-    echo
-    echo "Inspecting Kialis in ${kialiNS} namespace"
-    inspect "Kiali" "${kialiNS}"
-    inspectNamespace "$kialiNS"
-  done
+  # inspect Kiali if it's installed
+  if oc get crd kialis.kiali.io &> /dev/null; then
+    # Inspect all Kialis
+    for kialiNS in $(oc get Kiali -A -o jsonpath="{.items[*].metadata.namespace}"); do
+      echo
+      echo "Inspecting Kialis in ${kialiNS} namespace"
+      inspect "Kiali" "${kialiNS}"
+      inspectNamespace "$kialiNS"
+    done
 
-  # Inspect all ossmconsoles
-  for consoleNS in $(oc get ossmconsole -A -o jsonpath="{.items[*].metadata.namespace}"); do
-    echo
-    echo "Inspecting ossmconsoles in ${consoleNS} namespace"
-    inspect "ossmconsole" "${consoleNS}"
-    inspectNamespace "$consoleNS"
-  done
+    # Inspect all ossmconsoles
+    for consoleNS in $(oc get ossmconsole -A -o jsonpath="{.items[*].metadata.namespace}"); do
+      echo
+      echo "Inspecting ossmconsoles in ${consoleNS} namespace"
+      inspect "ossmconsole" "${consoleNS}"
+      inspectNamespace "$consoleNS"
+    done
+  fi
 
 echo
 echo
