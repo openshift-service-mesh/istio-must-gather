@@ -27,6 +27,6 @@ You will get a dump of:
 - All Sail operator CRD's definitions
 - All Sail operator CRD's objects (Istio CNI, Istio, Istio Revision, etc.)
 - All Kiali CRD's definitions
-- All Istio CRD's objects (Kiali, ossmconsole)
+- All Kiali CRD objects (Kiali, ossmconsole)
 
 In order to get data about other parts of the cluster (not specific to service mesh) you should run just `oc adm must-gather` (without passing a custom image). Run `oc adm must-gather -h` to see more options.
