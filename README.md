@@ -21,12 +21,12 @@ You will get a dump of:
 - The Sail Operator namespace (and its children objects)
 - All Control Plane namespaces (and their children objects)
 - All namespaces (and their children objects) that belong to any service mesh
-- All Istio CRD's definitions
-- All Istio CRD's objects (VirtualServices in a given namespace, etc)
+- All Istio CRD definitions
+- All Istio CRD objects (VirtualServices in a given namespace, etc)
 - All Istio Webhooks
-- All Sail operator CRD's definitions
-- All Sail operator CRD's objects (Istio CNI, Istio, Istio Revision, etc.)
-- All Kiali CRD's definitions
+- All Sail operator CRD definitions
+- All Sail operator CRD objects (Istio CNI, Istio, Istio Revision, etc.)
+- All Kiali CRD definitions
 - All Kiali CRD objects (Kiali, ossmconsole)
 
 In order to get data about other parts of the cluster (not specific to service mesh) you should run just `oc adm must-gather` (without passing a custom image). Run `oc adm must-gather -h` to see more options.
