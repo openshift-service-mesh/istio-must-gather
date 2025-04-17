@@ -174,6 +174,7 @@ function main() {
   # 'install.operator.istio.io/owning-resource' should not be used as it could interfere with istioctl
   # using 'metadata.ownerReferences' is not a good solution, we should use the new label when ready
   # this needs to be revisited when working on https://issues.redhat.com/browse/OSSM-6804
+  # Following label could be used - https://github.com/istio-ecosystem/sail-operator/pull/783
   for r in $(oc get clusterroles,clusterrolebindings -l install.operator.istio.io/owning-resource -oname); do
     inspect "$r"
   done
