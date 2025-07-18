@@ -1,4 +1,4 @@
-FROM quay.io/openshift/origin-must-gather:4.16
+FROM quay.io/openshift/origin-must-gather:4.19
 
 # Save original gather script
 RUN mv /usr/bin/gather /usr/bin/gather_original
