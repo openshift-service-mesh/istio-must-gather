@@ -14,7 +14,7 @@
 
 default: image
 
-HUB ?= quay.io/maistra
+HUB ?= quay.io/sail-dev
 TAG ?= 3.0
 
 lint:
