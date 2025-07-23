@@ -31,11 +31,11 @@ get_log_collection_args() {
   fi
 }
 
-# Get Istio, sail operator, kiali and gateway.networking.k8s.io group CRDs
+# Get Istio, sail operator, kiali, gateway.networking.k8s.io and inference.networking.x-k8s.io group CRDs
 function getCRDs() {
   local result=()
   local output
-  output=$(oc get crds -o custom-columns=NAME:metadata.name --no-headers | grep -e '\.istio\.io' -e '\.sailoperator\.io' -e '\.kiali\.io' -e '\.gateway\.networking\.k8s\.io')
+  output=$(oc get crds -o custom-columns=NAME:metadata.name --no-headers | grep -e '\.istio\.io' -e '\.sailoperator\.io' -e '\.kiali\.io' -e '\.gateway\.networking\.k8s\.io' -e 'inference\.networking\.x-k8s\.io')
   for crd in ${output}; do
     result+=("${crd}")
   done
@@ -182,7 +182,7 @@ function main() {
     inspect "$r"
   done
 
-  # inspect all istio, sail operator, kiali and gateway API CRDs
+  # inspect all istio, sail operator, kiali and gateway API+ CRDs
   # this will also collect instances of those CRDs
   crds="$(getCRDs)"
   for crd in ${crds}; do
