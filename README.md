@@ -12,7 +12,7 @@ Istio must-gather
 
 ### Usage
 ```sh
-oc adm must-gather --image=quay.io/sail-dev/istio-must-gather:3.1
+oc adm must-gather --image=quay.io/sail-dev/istio-must-gather:3.0
 ```
 
 The command above will create a local directory with a dump of the OpenShift Service Mesh state. Note that this command will only get data related to the Service Mesh part of the OpenShift cluster.

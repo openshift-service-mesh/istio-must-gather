@@ -15,7 +15,7 @@
 default: image
 
 HUB ?= quay.io/sail-dev
-TAG ?= 3.1
+TAG ?= 3.0
 
 lint:
 	find . -name '*.sh' -print0 | xargs -0 -r shellcheck
