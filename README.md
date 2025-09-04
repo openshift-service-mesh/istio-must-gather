@@ -34,3 +34,7 @@ You will get a dump of:
 - All inference.networking.x-k8s.io group instances
 
 In order to get data about other parts of the cluster (not specific to service mesh) you should run just `oc adm must-gather` (without passing a custom image). Run `oc adm must-gather -h` to see more options.
+
+<!-- 
+Current full version: 3.0.4
+-->
