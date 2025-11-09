@@ -211,6 +211,12 @@ function main() {
     inspectNamespace "${istioCniNamespace}"
   fi
 
+  ztunnelNamespace=$(oc get ZTunnel -A -o jsonpath="{.items[0].spec.namespace}")
+  if [ -n "$ztunnelNamespace" ]
+  then
+    inspectNamespace "${ztunnelNamespace}"
+  fi
+
   # iterate over all Istio revisions
   for ir in $(oc get IstioRevision -o jsonpath="{.items[*].metadata.name}"); do
     echo
