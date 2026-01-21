@@ -1,3 +1,8 @@
+# DEPRECATION NOTICE
+Istio must-gather functionality is in the process of being migrated to the core must-gather image. See https://issues.redhat.com/browse/OSSM-10530 and https://github.com/openshift/must-gather/pull/503 for details. The migration will be complete once the 4.21 must-gather image is released in early 2026.
+
+In the interim, any changes made here **MUST** be ported to the [istio script](https://github.com/openshift/must-gather/blob/main/collection-scripts/gather_istio) in the core must-gather repo as well.
+
 # istio-must-gather
 A client tool for gathering Service Mesh information in a OpenShift cluster 
 
